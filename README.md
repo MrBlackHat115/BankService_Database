@@ -1,1 +1,2 @@
-A MySQL-based banking database system designed to manage clients, accounts, transactions, employees, departments, cards, and bank branches (franchises).
+# **What is this database?**
+* A MySQL-based banking database system designed to manage clients, accounts, transactions, employees, departments, cards, and bank branches (franchises).
