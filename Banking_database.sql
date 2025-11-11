@@ -106,6 +106,21 @@ create table transactions (
 	FOREIGN KEY (recipient_account_id) REFERENCES accounts(id)
 );
 
+CREATE TABLE transaction_logs (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    transaction_id INT NOT NULL,
+    transaction_type ENUM('deposit','withdrawal','transfer','payment','fee','interest') NOT NULL,
+    amount_sent DECIMAL(15,2) NOT NULL,
+    sent_by_id INT NOT NULL,
+    recipient_account_id INT NULL,
+    sender_balance_before DECIMAL(15,2),
+    sender_balance_after DECIMAL(15,2),
+    recipient_balance_before DECIMAL(15,2),
+    recipient_balance_after DECIMAL(15,2),
+    log_date TIMESTAMP DEFAULT NOW(),
+    FOREIGN KEY (transaction_id) REFERENCES transactions(id)
+);
+
 INSERT INTO transactions (amount_sent, sender_account_id, transaction_type, recipient_account_id)
 VALUES
 (200.00, 1, 'deposit', NULL),
@@ -180,23 +195,32 @@ VALUES
 
 DELIMITER //
 
-CREATE TRIGGER after_transaction_insert
+CREATE TRIGGER log_transaction
 AFTER INSERT ON transactions
 FOR EACH ROW
 BEGIN
-    -- If transaction is a deposit, add to CheckingAccount
+    DECLARE sender_before DECIMAL(15,2);
+    DECLARE sender_after DECIMAL(15,2);
+    DECLARE recipient_before DECIMAL(15,2);
+    DECLARE recipient_after DECIMAL(15,2);
+
+    -- Get balances before update
+    SELECT CheckingAccount INTO sender_before FROM accounts WHERE id = NEW.sender_account_id;
+    IF NEW.recipient_account_id IS NOT NULL THEN
+        SELECT CheckingAccount INTO recipient_before FROM accounts WHERE id = NEW.recipient_account_id;
+    END IF;
+
+    -- Perform balance updates based on transaction type
     IF NEW.transaction_type = 'deposit' THEN
         UPDATE accounts
         SET CheckingAccount = CheckingAccount + NEW.amount_sent
         WHERE id = NEW.sender_account_id;
 
-    -- If transaction is a withdrawal, subtract from CheckingAccount
     ELSEIF NEW.transaction_type = 'withdrawal' THEN
         UPDATE accounts
         SET CheckingAccount = CheckingAccount - NEW.amount_sent
         WHERE id = NEW.sender_account_id;
 
-    -- If transaction is a transfer, subtract from sender and add to recipient
     ELSEIF NEW.transaction_type = 'transfer' THEN
         UPDATE accounts
         SET CheckingAccount = CheckingAccount - NEW.amount_sent
@@ -206,8 +230,27 @@ BEGIN
         SET CheckingAccount = CheckingAccount + NEW.amount_sent
         WHERE id = NEW.recipient_account_id;
     END IF;
+
+    -- Get balances after update
+    SELECT CheckingAccount INTO sender_after FROM accounts WHERE id = NEW.sender_account_id;
+    IF NEW.recipient_account_id IS NOT NULL THEN
+        SELECT CheckingAccount INTO recipient_after FROM accounts WHERE id = NEW.recipient_account_id;
+    END IF;
+
+    -- Insert log record
+    INSERT INTO transaction_logs (
+        transaction_id, transaction_type, amount_sent,
+        sent_by_id, recipient_account_id,
+        sender_balance_before, sender_balance_after,
+        recipient_balance_before, recipient_balance_after
+    )
+    VALUES (
+        NEW.id, NEW.transaction_type, NEW.amount_sent,
+        NEW.sender_account_id, NEW.recipient_account_id,
+        sender_before, sender_after,
+        recipient_before, recipient_after
+    );
 END;
 //
 
 DELIMITER ;
-    
